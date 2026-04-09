@@ -404,12 +404,43 @@ def health():
     return jsonify({"status": "ok", "service": "Spectra PO PDF Generator"})
 
 
+def extract_json_from_text(text):
+    """Extract JSON object from text that may contain preamble, markdown, etc."""
+    import re
+    # Strip markdown code fences
+    text = re.sub(r'```(?:json)?\s*', '', text)
+    text = text.strip()
+    # Find the first { and last } to extract the JSON object
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end != -1 and end > start:
+        return text[start:end+1]
+    return text
+
+
 @app.route("/generate-pdf", methods=["POST"])
 def generate_pdf():
     try:
-        data = request.get_json()
+        # Accept either JSON body or raw text body
+        raw_text = request.get_data(as_text=True)
+        
+        # Try parsing as JSON first
+        data = None
+        try:
+            data = request.get_json(force=True, silent=True)
+        except Exception:
+            pass
+        
+        # If JSON parse failed, try to extract JSON from raw text
+        if not data and raw_text:
+            try:
+                cleaned = extract_json_from_text(raw_text)
+                data = json.loads(cleaned)
+            except Exception:
+                pass
+
         if not data:
-            return jsonify({"error": "No JSON body received"}), 400
+            return jsonify({"error": f"Could not parse JSON. Raw input: {raw_text[:200]}"}), 400
 
         pdf_bytes = build_pdf(data)
         pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
